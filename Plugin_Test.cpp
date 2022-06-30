@@ -9,6 +9,7 @@
 #include "AudioPluginInterface.h"
 #include "AudioPluginUtil.h"
 #include "helm_plugin.h"
+#include "load_save.h"
 
 namespace MIDI {
     struct MidiEvent {
@@ -50,27 +51,6 @@ namespace JuceSynth {
         return numparams;
     }
 
-//    static void HandleEvent(MIDI::MidiEvent event, int samplenumber) {
-//        uint8 velocity = 100;
-//        juce::MidiMessage message;
-//
-//        // Special case: all notes off
-//        if (event.note == -1 && event.channel == -1 && !event.isNoteOn) {
-//            for (int i = 0; i < 16; i++) {
-//                message = juce::MidiMessage::allNotesOff(i);
-//                g_midiBuffer->addEvent(message, 0);
-//            }
-//        }
-//
-//        if (event.isNoteOn) {
-//            message = juce::MidiMessage::noteOn(event.channel, event.note, velocity);
-//        } else {
-//            message = juce::MidiMessage::noteOff(event.channel, event.note);
-//        }
-//
-//        g_midiBuffer->addEvent(message, 0);
-//    }
-
     double currentSampleRate = 0.0, currentAngle = 0.0, angleDelta = 0.0;
     // ------------------------------------------------ Main ------------------------------------------------
     UNITY_AUDIODSP_RESULT UNITY_AUDIODSP_CALLBACK ProcessCallback(
@@ -80,22 +60,12 @@ namespace JuceSynth {
             unsigned int length,
             int inchannels,
             int outchannels) {
-        // ---------------------------- MIDI ----------------------------
-//        int dspTick = state->currdsptick;
-//        MIDI::MidiEvent ev;
-//        while (MIDI::MIDI_DATA.Read(ev)) {
-//            HandleEvent(ev, dspTick);
-//        }
-
         // ---------------------------- AUDIO ----------------------------
         if (state->flags & (UnityAudioEffectStateFlags_IsMuted | UnityAudioEffectStateFlags_IsPaused))
             return UNITY_AUDIODSP_OK;
 
         // Process audio and MIDI
         g_helmPlugin->myProcessBlock(*g_juceBuffer, *g_midiBuffer);
-
-//        const auto cyclesPerSample = 500.0 / 44100.0;
-//        angleDelta = cyclesPerSample * 2.0 * juce::MathConstants<double>::pi;
 
         auto bufferToFill = *g_juceBuffer;
         auto level = 0.125f;
@@ -104,21 +74,11 @@ namespace JuceSynth {
 
         for (auto sample = 0; sample < length; ++sample)
         {
-//            auto currentSample = (float) std::sin (currentAngle);
-//            currentAngle += angleDelta;
-
             auto currentSample = g_juceBuffer->getSample(0, sample);
 
             outbuffer[sample * outchannels + 0] = currentSample * level;
             outbuffer[sample * outchannels + 1] = currentSample * level;
         }
-
-        // Write to Unity buffer
-//        for (unsigned int n = 0; n < length; n++) {
-//            for (int i = 0; i < outchannels; i++) {
-//                outbuffer[n * outchannels + i] = g_juceBuffer->getSample(i, n);
-//            }
-//        }
 
         return UNITY_AUDIODSP_OK;
     }
@@ -133,17 +93,13 @@ namespace JuceSynth {
 
         g_helmPlugin = std::make_unique<HelmPlugin>();
         g_helmPlugin->prepareToPlay(state->samplerate, state->dspbuffersize);
+        // Load init patch
         g_helmPlugin->loadInitPatch();
 
         g_helmPlugin->getEngine()->allNotesOff(0);
-//        g_helmPlugin->getEngine()->noteOn(60, 0.5f, 0, 2);
-//        g_helmPlugin->getEngine()->noteOn(63, 0.5f, 0, 2);
-//        g_helmPlugin->getEngine()->noteOn(67, 0.5f, 0, 2);
 
         g_midiBuffer = std::make_unique<MidiBuffer>();
 
-
-        // Load init patch
 
         return UNITY_AUDIODSP_OK;
     }
@@ -201,8 +157,31 @@ namespace JuceSynth {
         lock.Unlock();
     }
 
-    extern "C" UNITY_AUDIODSP_EXPORT_API void Synthesizer_GetBufferData(int channel, float buffer[], int numSamples, int numAudioChannels)
-    {
+    std::string patchStr;
 
+    extern "C" UNITY_AUDIODSP_EXPORT_API const char* Synthesizer_GetAllPatches(){
+        patchStr = "";
+        auto patches = LoadSave::getAllPatches();
+        for (auto && patch : patches){
+            patchStr += patch.getFullPathName().toStdString() + ";";
+        }
+
+        return patchStr.data();
+    }
+
+    extern "C" UNITY_AUDIODSP_EXPORT_API void Synthesizer_LoadPatch(int bankIndex, int folderIndex, int patchIndex){
+        LoadSave::loadPatch(
+                bankIndex,
+                folderIndex,
+                patchIndex,
+                g_helmPlugin.get(),
+                *g_helmPlugin->getMidiManager().gui_state_);
+    }
+
+    extern "C" UNITY_AUDIODSP_EXPORT_API void Synthesizer_SetStreamingAssetsPath(const char* dataPathStr)
+    {
+        LoadSave::UnityStreamingAssetsPath = std::string(dataPathStr);
+        // Reload patches
+        g_helmPlugin->loadPatches();
     }
 }
