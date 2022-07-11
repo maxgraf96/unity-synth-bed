@@ -1,1 +1,1 @@
-DECLARE_EFFECT("JuceSynth", JuceSynth)
+DECLARE_EFFECT("JuceSynth", JuceSynthVital)

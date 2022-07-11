@@ -15,8 +15,13 @@ add_compile_definitions(JUCE_MODAL_LOOPS_PERMITTED=1)
 
 project(AudioPluginDemo)
 
-add_subdirectory(helm/concurrentqueue)
-add_subdirectory(helm/mopo)
+if(${IS_HOLOLENS_2})
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /D_M_ARM /D__ARM_NEON /Zc:arm64-aliased-neon-types-")
+else()
+    #ADD_COMPILE_DEFINITIONS(/arch:SSE2)
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /D__SSE2__")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /D__SSE2__")
+endif()
 
 list(APPEND CMAKE_PREFIX_PATH "C:/JUCE/install")
 find_package(JUCE CONFIG REQUIRED)
@@ -24,7 +29,7 @@ find_package(JUCE CONFIG REQUIRED)
 function(juce_add_shared_library target)
     add_library(${target} SHARED
             AudioPluginUtil.cpp
-            Plugin_Test.cpp
+            Plugin_Test_Vital.cpp
             )
 
     target_compile_definitions(${target} PRIVATE JUCE_STANDALONE_APPLICATION=1)
@@ -39,89 +44,55 @@ juce_add_shared_library(${PROJECT_NAME}
 
 juce_generate_juce_header(${PROJECT_NAME})
 
-#file(GLOB ${PROJECT_SOURCE_DIR}/helm/src/editor_components
-#        "*.cpp"
-#        )
+include_directories(${PROJECT_SOURCE_DIR}/vital/src/common)
 
-target_sources(${PROJECT_NAME} PRIVATE
-        Plugin_Test.cpp
+file(GLOB COMMON_SRC ${PROJECT_SOURCE_DIR}/vital/src/common/*.cpp)
+file(GLOB COMMON_SRC_H ${PROJECT_SOURCE_DIR}/vital/src/common/*.h)
 
-#        # Mopo
-#        helm/mopo/src/alias.cpp
-#        helm/mopo/src/arpeggiator.cpp
-#        helm/mopo/src/biquad_filter.cpp
-#        helm/mopo/src/bit_crush.cpp
-#        helm/mopo/src/bypass_router.cpp
-#        helm/mopo/src/delay.cpp
-#        helm/mopo/src/distortion.cpp
-#        helm/mopo/src/envelope.cpp
-#        helm/mopo/src/feedback.cpp
-#        helm/mopo/src/formant_manager.cpp
-#        helm/mopo/src/ladder_filter.cpp
-#        helm/mopo/src/linear_slope.cpp
-#        helm/mopo/src/magnitude_lookup.cpp
-#        helm/mopo/src/memory.cpp
-#        helm/mopo/src/midi_lookup.cpp
-#        helm/mopo/src/mono_panner.cpp
-#        helm/mopo/src/mopo.h
-#        helm/mopo/src/operators.cpp
-#        helm/mopo/src/oscillator.cpp
-#        helm/mopo/src/portamento_slope.cpp
-#        helm/mopo/src/processor.cpp
-#        helm/mopo/src/processor_router.cpp
-#        helm/mopo/src/resonance_lookup.cpp
-#        helm/mopo/src/reverb.cpp
-#        helm/mopo/src/reverb_all_pass.cpp
-#        helm/mopo/src/reverb_comb.cpp
-#        helm/mopo/src/sample_decay_lookup.cpp
-#        helm/mopo/src/simple_delay.cpp
-#        helm/mopo/src/smooth_filter.cpp
-#        helm/mopo/src/smooth_value.cpp
-#        helm/mopo/src/state_variable_filter.cpp
-#        helm/mopo/src/step_generator.cpp
-#        helm/mopo/src/stutter.cpp
-#        helm/mopo/src/trigger_operators.cpp
-#        helm/mopo/src/value.cpp
-#        helm/mopo/src/voice_handler.cpp
+list(REMOVE_ITEM COMMON_SRC "${PROJECT_SOURCE_DIR}/vital/src/common/border_bounds_constrainer.cpp")
+#list(REMOVE_ITEM COMMON_SRC "${PROJECT_SOURCE_DIR}/vital/src/common/line_generator.cpp")
+list(REMOVE_ITEM COMMON_SRC_H "${PROJECT_SOURCE_DIR}/vital/src/common/border_bounds_constrainer.h")
+#list(REMOVE_ITEM COMMON_SRC_H "${PROJECT_SOURCE_DIR}/vital/src/common/line_generator.h")
 
-        # Helm common
-#        helm/src/common/border_bounds_constrainer.cpp
-#        helm/src/common/file_list_box_model.cpp
-        helm/src/common/helm_common.cpp
-        helm/src/common/load_save.cpp
-        helm/src/common/midi_manager.cpp
-        helm/src/common/startup.cpp
-        helm/src/common/synth_base.cpp
+file(GLOB WAVETABLE_SRC ${PROJECT_SOURCE_DIR}/vital/src/common/wavetable/*.cpp)
 
-        # Helm synthesis
-        helm/src/synthesis/dc_filter.cpp
-        helm/src/synthesis/detune_lookup.cpp
-        helm/src/synthesis/fixed_point_oscillator.cpp
-        helm/src/synthesis/fixed_point_wave.cpp
-        helm/src/synthesis/gate.cpp
-        helm/src/synthesis/helm_engine.cpp
-        helm/src/synthesis/helm_lfo.cpp
-        helm/src/synthesis/helm_module.cpp
-        helm/src/synthesis/helm_oscillators.cpp
-        helm/src/synthesis/helm_voice_handler.cpp
-        helm/src/synthesis/noise_oscillator.cpp
-        helm/src/synthesis/peak_meter.cpp
-        helm/src/synthesis/resonance_cancel.cpp
-        helm/src/synthesis/trigger_random.cpp
-        helm/src/synthesis/value_switch.cpp
-
-        # Plugin
-        helm/src/plugin/helm_plugin.cpp
-        )
+file(GLOB_RECURSE SYNTHESIS_SRC ${PROJECT_SOURCE_DIR}/vital/src/synthesis/*.cpp)
 
 target_include_directories(${PROJECT_NAME} PUBLIC
-        helm/src/common
-        helm/src/synthesis
-        helm/src/plugin
-        #        helm/src/look_and_feel
-        #        helm/src/editor_sections
-        #        helm/src/editor_components
-)
+        vital/third_party/kissfft
+        vital/third_party/json
+        vital/third_party/concurrentqueue
+        COMMON_SRC_H
+        vital/src/common/wavetable
+        vital/src/plugin
+        vital/src/synthesis
+        vital/src/synthesis/lookups
+        vital/src/synthesis/effects
+        vital/src/synthesis/effects_engine
+        vital/src/synthesis/filters
+        vital/src/synthesis/framework
+        vital/src/synthesis/modulators
+        vital/src/synthesis/modules
+        vital/src/synthesis/producers
+        vital/src/synthesis/synth_engine
+        vital/src/synthesis/utilities
+        vital/src/interface/look_and_feel
+
+        )
+
+target_sources(${PROJECT_NAME} PRIVATE
+        vital/src/synthesis/lookups/memory.h
+        vital/third_party/kissfft/kissfft.h
+        vital/third_party/concurrentqueue/concurrentqueue.h
+        vital/third_party/json/json.h
+        ${COMMON_SRC}
+        ${WAVETABLE_SRC}
+        vital/src/plugin/synth_plugin.cpp
+        ${SYNTHESIS_SRC}
+        vital/src/synthesis/framework/poly_values.h
+        vital/src/interface/look_and_feel/synth_strings.h
+        )
+
 
 target_compile_definitions(${PROJECT_NAME} PUBLIC
         JUCE_DISPLAY_SPLASH_SCREEN=0
@@ -135,28 +106,9 @@ target_compile_definitions(${PROJECT_NAME} PUBLIC
         JUCE_USE_XRANDR=0
         )
 
-juce_add_binary_data(
-        MyBinaryData SOURCES
-        "helm/patches/Factory Presets/Keys/CM Bells.helm"
-)
 
-if(${IS_HOLOLENS_2})
-    target_link_libraries(${PROJECT_NAME} PUBLIC ${PROJECT_SOURCE_DIR}/comsuppw.lib)
-    target_link_libraries(${PROJECT_NAME} PUBLIC "C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Community\\VC\\Tools\\MSVC\\14.29.30133\\lib\\arm64\\msvcprt.lib")
-    target_link_libraries(${PROJECT_NAME} PUBLIC "C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Community\\VC\\Tools\\MSVC\\14.29.30133\\lib\\arm64\\vcruntime.lib")
-
-    target_link_libraries(${PROJECT_NAME} PUBLIC "C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Community\\VC\\Tools\\MSVC\\14.29.30133\\lib\\arm64\\msvcrt.lib")
-
-    #target_link_libraries(${PROJECT_NAME} PUBLIC "C:\\Program Files (x86)\\Windows Kits\\10\\lib\\10.0.22000.0\\ucrt\\arm64\\libucrt.lib")
-    #target_link_libraries(${PROJECT_NAME} PUBLIC "C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Community\\VC\\Tools\\MSVC\\14.29.30133\\lib\\arm64\\libcpmt.lib")
-    #target_link_libraries(${PROJECT_NAME} PUBLIC "C:\\Program Files (x86)\\Windows Kits\\10\\lib\\10.0.22000.0\\ucrt\\arm64\\ucrt.lib")
-endif()
 
 target_link_libraries(${PROJECT_NAME} PUBLIC
-        concurrentqueue
-        mopo
-
-        MyBinaryData
         juce::juce_analytics
         juce::juce_audio_basics
         juce::juce_audio_devices
@@ -175,12 +127,6 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
 
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
-
-#        juce::juce_cryptography
-#        juce::juce_opengl
-#        juce::juce_osc
-#        juce::juce_video
-#        juce::juce_product_unlocking
         )
 
 
@@ -188,6 +134,14 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
 if(WIN32)
     target_link_libraries(${PROJECT_NAME} PUBLIC winmm.lib )
 endif(WIN32)
+
+if(${IS_HOLOLENS_2})
+    target_link_libraries(${PROJECT_NAME} PUBLIC ${PROJECT_SOURCE_DIR}/comsuppw.lib)
+    target_link_libraries(${PROJECT_NAME} PUBLIC "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.32.31326\\lib\\arm64\\msvcprt.lib")
+    target_link_libraries(${PROJECT_NAME} PUBLIC "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.32.31326\\lib\\arm64\\vcruntime.lib")
+
+    target_link_libraries(${PROJECT_NAME} PUBLIC "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.32.31326\\lib\\arm64\\msvcrt.lib")
+endif()
 
 # Copy to unity plugin dir
 if(${IS_HOLOLENS_2})

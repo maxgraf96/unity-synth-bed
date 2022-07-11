@@ -4,24 +4,13 @@
 
 #pragma once
 
-#define JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED
-
 #include "AudioPluginInterface.h"
 #include "AudioPluginUtil.h"
-#include "helm_plugin.h"
+#include "synth_plugin.h"
 #include "load_save.h"
+#include "sound_engine.h"
 
-namespace MIDI {
-    struct MidiEvent {
-        int channel;
-        int note;
-        bool isNoteOn;
-    };
-
-    static RingBuffer<8192, MidiEvent> MIDI_DATA;
-}
-
-namespace JuceSynth {
+namespace JuceSynthVital {
     enum Param {
         P_FREQ,
         P_MIX,
@@ -30,7 +19,8 @@ namespace JuceSynth {
 
     std::unique_ptr<AudioBuffer<float>> g_juceBuffer;
     std::unique_ptr<MidiBuffer> g_midiBuffer;
-    std::unique_ptr<HelmPlugin> g_helmPlugin;
+    std::unique_ptr<SynthPlugin> g_vitalPlugin;
+    Array<File> presets_;
     Mutex lock;
 
     struct EffectData {
@@ -65,19 +55,18 @@ namespace JuceSynth {
             return UNITY_AUDIODSP_OK;
 
         // Process audio and MIDI
-        g_helmPlugin->myProcessBlock(*g_juceBuffer, *g_midiBuffer);
-
-        auto bufferToFill = *g_juceBuffer;
+        g_vitalPlugin->myProcessBlock(*g_juceBuffer, *g_midiBuffer);
         auto level = 0.125f;
 
-        assert(g_juceBuffer->getNumSamples() == length);
+//        g_vitalPlugin->processBlock(*g_juceBuffer, *g_midiBuffer);
 
-        for (auto sample = 0; sample < length; ++sample)
+        auto leftReader = g_juceBuffer->getReadPointer(0);
+        auto rightReader = g_juceBuffer->getReadPointer(1);
+
+        for (auto sample = 0; sample < g_juceBuffer->getNumSamples(); sample++)
         {
-            auto currentSample = g_juceBuffer->getSample(0, sample);
-
-            outbuffer[sample * outchannels + 0] = currentSample * level;
-            outbuffer[sample * outchannels + 1] = currentSample * level;
+            outbuffer[sample * outchannels + 0] = leftReader[sample] * level;
+            outbuffer[sample * outchannels + 1] = rightReader[sample] * level;
         }
 
         return UNITY_AUDIODSP_OK;
@@ -91,12 +80,10 @@ namespace JuceSynth {
         EffectData *effectdata = new EffectData;
         state->effectdata = effectdata;
 
-        g_helmPlugin = std::make_unique<HelmPlugin>();
-        g_helmPlugin->prepareToPlay(state->samplerate, state->dspbuffersize);
-        // Load init patch
-        g_helmPlugin->loadInitPatch();
+        g_vitalPlugin = std::make_unique<SynthPlugin>();
+        g_vitalPlugin->prepareToPlay(static_cast<double>(state->samplerate), state->dspbuffersize);
 
-        g_helmPlugin->getEngine()->allNotesOff(0);
+        g_vitalPlugin->getEngine()->allNotesOff(0);
 
         g_midiBuffer = std::make_unique<MidiBuffer>();
 
@@ -136,15 +123,17 @@ namespace JuceSynth {
 
     extern "C" UNITY_AUDIODSP_EXPORT_API int Synthesizer_AddMessage(int note, int channel, bool isNoteOn) {
         if(isNoteOn){
-            g_helmPlugin->getEngine()->noteOn(note, 0.5f, 0, channel);
+            g_vitalPlugin->getEngine()->noteOn(note, 0.5f, 0, channel);
         } else {
-            g_helmPlugin->getEngine()->noteOff(note, 0);
+            // lift velocity!!!
+            float lift = 0.5;
+            g_vitalPlugin->getEngine()->noteOff(note, lift, 0, channel);
         }
         return 200;
     }
 
     extern "C" UNITY_AUDIODSP_EXPORT_API int Synthesizer_AllNotesOff() {
-        g_helmPlugin->getEngine()->allNotesOff(0);
+        g_vitalPlugin->getEngine()->allNotesOff(0);
 
         return 200;
     }
@@ -153,7 +142,7 @@ namespace JuceSynth {
         do {}
         while (!lock.TryLock());
         g_juceBuffer = std::make_unique<AudioBuffer<float>>(2, bufferSize);
-        g_helmPlugin->prepareToPlay(sampleRate, bufferSize);
+        g_vitalPlugin->prepareToPlay(sampleRate, bufferSize);
         lock.Unlock();
     }
 
@@ -161,27 +150,36 @@ namespace JuceSynth {
 
     extern "C" UNITY_AUDIODSP_EXPORT_API const char* Synthesizer_GetAllPatches(){
         patchStr = "";
-        auto patches = LoadSave::getAllPatches();
-        for (auto && patch : patches){
+        LoadSave::getAllPresets(presets_);
+        for (auto && patch : presets_){
             patchStr += patch.getFullPathName().toStdString() + ";";
         }
 
         return patchStr.data();
     }
 
-    extern "C" UNITY_AUDIODSP_EXPORT_API void Synthesizer_LoadPatch(int bankIndex, int folderIndex, int patchIndex){
-        LoadSave::loadPatch(
-                bankIndex,
-                folderIndex,
-                patchIndex,
-                g_helmPlugin.get(),
-                *g_helmPlugin->getMidiManager().gui_state_);
+    extern "C" UNITY_AUDIODSP_EXPORT_API void Synthesizer_LoadPatch(int index){
+        File file = presets_[index];
+        std::string error;
+        g_vitalPlugin->loadFromFile(file, error);
     }
 
     extern "C" UNITY_AUDIODSP_EXPORT_API void Synthesizer_SetStreamingAssetsPath(const char* dataPathStr)
     {
-        LoadSave::UnityStreamingAssetsPath = std::string(dataPathStr);
-        // Reload patches
-        g_helmPlugin->loadPatches();
+//        LoadSave::UnityStreamingAssetsPath = std::string(dataPathStr);
+//         Reload patches
+//        g_vitalPlugin->loadPatches();
+    }
+
+    extern "C" UNITY_AUDIODSP_EXPORT_API void Synthesizer_PitchBendMessage(int channel, double bend){
+        g_vitalPlugin->getEngine()->setPitchWheel(bend, channel);
+    }
+
+    extern "C" UNITY_AUDIODSP_EXPORT_API void Synthesizer_ModWheelMessage(int channel, double value){
+        g_vitalPlugin->getEngine()->setModWheel(value, channel);
+    }
+
+    extern "C" UNITY_AUDIODSP_EXPORT_API void Synthesizer_ChannelAfterTouchMessage(int channel, double value){
+        g_vitalPlugin->getEngine()->setChannelAftertouch(channel, value, 0);
     }
 }
