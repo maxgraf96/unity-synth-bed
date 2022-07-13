@@ -8,7 +8,8 @@
 #include "AudioPluginUtil.h"
 #include "synth_plugin.h"
 #include "load_save.h"
-#include "sound_engine.h"
+
+using namespace std;
 
 namespace JuceSynthVital {
     enum Param {
@@ -17,11 +18,11 @@ namespace JuceSynthVital {
         P_NUM
     };
 
-    std::unique_ptr<AudioBuffer<float>> g_juceBuffer;
-    std::unique_ptr<MidiBuffer> g_midiBuffer;
-    std::unique_ptr<SynthPlugin> g_vitalPlugin;
+    unique_ptr<AudioBuffer<float>> g_juceBuffer;
+    unique_ptr<MidiBuffer> g_midiReadBuffer;
+    unique_ptr<MidiBuffer> g_midiWriteBuffer;
+    unique_ptr<SynthPlugin> g_vitalPlugin;
     Array<File> presets_;
-    Mutex lock;
 
     struct EffectData {
         float p[P_NUM]; // Parameters
@@ -41,7 +42,6 @@ namespace JuceSynthVital {
         return numparams;
     }
 
-    double currentSampleRate = 0.0, currentAngle = 0.0, angleDelta = 0.0;
     // ------------------------------------------------ Main ------------------------------------------------
     UNITY_AUDIODSP_RESULT UNITY_AUDIODSP_CALLBACK ProcessCallback(
             UnityAudioEffectState *state,
@@ -54,20 +54,23 @@ namespace JuceSynthVital {
         if (state->flags & (UnityAudioEffectStateFlags_IsMuted | UnityAudioEffectStateFlags_IsPaused))
             return UNITY_AUDIODSP_OK;
 
-        // Process audio and MIDI
-        g_vitalPlugin->myProcessBlock(*g_juceBuffer, *g_midiBuffer);
-        auto level = 0.125f;
+        // Clear read buffer
+        g_midiReadBuffer->clear();
+        // Swap read with write buffer
+        g_midiReadBuffer->swapWith(*g_midiWriteBuffer);
 
-//        g_vitalPlugin->processBlock(*g_juceBuffer, *g_midiBuffer);
+        // Process audio and MIDI read buffer
+        g_vitalPlugin->myProcessBlock(*g_juceBuffer, *g_midiReadBuffer);
 
         auto leftReader = g_juceBuffer->getReadPointer(0);
         auto rightReader = g_juceBuffer->getReadPointer(1);
 
         for (auto sample = 0; sample < g_juceBuffer->getNumSamples(); sample++)
         {
-            outbuffer[sample * outchannels + 0] = leftReader[sample] * level;
-            outbuffer[sample * outchannels + 1] = rightReader[sample] * level;
+            outbuffer[sample * outchannels + 0] = leftReader[sample];
+            outbuffer[sample * outchannels + 1] = rightReader[sample];
         }
+
 
         return UNITY_AUDIODSP_OK;
     }
@@ -75,18 +78,16 @@ namespace JuceSynthVital {
 
     UNITY_AUDIODSP_RESULT UNITY_AUDIODSP_CALLBACK CreateCallback(
             UnityAudioEffectState *state) {
-        g_juceBuffer = std::make_unique<AudioBuffer<float>>(2, state->dspbuffersize);
 
         EffectData *effectdata = new EffectData;
         state->effectdata = effectdata;
 
-        g_vitalPlugin = std::make_unique<SynthPlugin>();
+        g_juceBuffer = make_unique<AudioBuffer<float>>(2, state->dspbuffersize);
+        g_vitalPlugin = make_unique<SynthPlugin>();
+        g_midiReadBuffer = make_unique<MidiBuffer>();
+        g_midiWriteBuffer = make_unique<MidiBuffer>();
+
         g_vitalPlugin->prepareToPlay(static_cast<double>(state->samplerate), state->dspbuffersize);
-
-        g_vitalPlugin->getEngine()->allNotesOff(0);
-
-        g_midiBuffer = std::make_unique<MidiBuffer>();
-
 
         return UNITY_AUDIODSP_OK;
     }
@@ -102,11 +103,6 @@ namespace JuceSynthVital {
         if (index >= P_NUM)
             return UNITY_AUDIODSP_ERR_UNSUPPORTED;
 
-        switch (index) {
-            case 0:
-//                data->processor->m_frequency = value;
-                break;
-        }
         return UNITY_AUDIODSP_OK;
     }
 
@@ -121,32 +117,15 @@ namespace JuceSynthVital {
         return UNITY_AUDIODSP_OK;
     }
 
-    extern "C" UNITY_AUDIODSP_EXPORT_API int Synthesizer_AddMessage(int note, int channel, bool isNoteOn) {
-        if(isNoteOn){
-            g_vitalPlugin->getEngine()->noteOn(note, 0.5f, 0, channel);
-        } else {
-            // lift velocity!!!
-            float lift = 0.5;
-            g_vitalPlugin->getEngine()->noteOff(note, lift, 0, channel);
-        }
-        return 200;
-    }
-
-    extern "C" UNITY_AUDIODSP_EXPORT_API int Synthesizer_AllNotesOff() {
-        g_vitalPlugin->getEngine()->allNotesOff(0);
-
-        return 200;
-    }
-
     extern "C" UNITY_AUDIODSP_EXPORT_API void Synthesizer_UpdateConfig(int bufferSize, int sampleRate) {
-        do {}
-        while (!lock.TryLock());
-        g_juceBuffer = std::make_unique<AudioBuffer<float>>(2, bufferSize);
+        g_vitalPlugin->pauseProcessing(true);
+        g_juceBuffer->setSize(2, bufferSize);
         g_vitalPlugin->prepareToPlay(sampleRate, bufferSize);
-        lock.Unlock();
+        g_vitalPlugin->pauseProcessing(false);
     }
 
     std::string patchStr;
+    std::string error;
 
     extern "C" UNITY_AUDIODSP_EXPORT_API const char* Synthesizer_GetAllPatches(){
         patchStr = "";
@@ -158,28 +137,46 @@ namespace JuceSynthVital {
         return patchStr.data();
     }
 
-    extern "C" UNITY_AUDIODSP_EXPORT_API void Synthesizer_LoadPatch(int index){
+    extern "C" UNITY_AUDIODSP_EXPORT_API const char* Synthesizer_LoadPatch(int index){
+        error = "";
         File file = presets_[index];
-        std::string error;
         g_vitalPlugin->loadFromFile(file, error);
+
+        return error.data();
     }
 
     extern "C" UNITY_AUDIODSP_EXPORT_API void Synthesizer_SetStreamingAssetsPath(const char* dataPathStr)
     {
-//        LoadSave::UnityStreamingAssetsPath = std::string(dataPathStr);
-//         Reload patches
-//        g_vitalPlugin->loadPatches();
+        LoadSave::UnityStreamingAssetsPath = std::string(dataPathStr);
+        // Reload patches
+        LoadSave::getAllPresets(presets_);
     }
 
-    extern "C" UNITY_AUDIODSP_EXPORT_API void Synthesizer_PitchBendMessage(int channel, double bend){
-        g_vitalPlugin->getEngine()->setPitchWheel(bend, channel);
+    extern "C" UNITY_AUDIODSP_EXPORT_API int Synthesizer_AddMessage(int note, int channel, bool isNoteOn) {
+        if(isNoteOn){
+            g_midiWriteBuffer->addEvent(juce::MidiMessage::noteOn(channel, note, 0.5f), 0);
+        } else {
+            // lift velocity!!!
+            float lift = 0.5;
+            g_midiWriteBuffer->addEvent(juce::MidiMessage::noteOff(channel, note, lift), 0);
+        }
+        return 200;
     }
 
-    extern "C" UNITY_AUDIODSP_EXPORT_API void Synthesizer_ModWheelMessage(int channel, double value){
-        g_vitalPlugin->getEngine()->setModWheel(value, channel);
+    extern "C" UNITY_AUDIODSP_EXPORT_API int Synthesizer_AllNotesOff() {
+        for(int channel = 1; channel < 17; channel++){
+            g_midiWriteBuffer->addEvent(juce::MidiMessage::allNotesOff(channel), 0);
+        }
+        return 200;
     }
 
-    extern "C" UNITY_AUDIODSP_EXPORT_API void Synthesizer_ChannelAfterTouchMessage(int channel, double value){
-        g_vitalPlugin->getEngine()->setChannelAftertouch(channel, value, 0);
+    extern "C" UNITY_AUDIODSP_EXPORT_API void Synthesizer_PitchBendMessage(int channel, int bend){
+        g_midiWriteBuffer->addEvent(juce::MidiMessage::pitchWheel(channel, bend), 0);
+//        g_vitalPlugin->getEngine()->setPitchWheel(bend, channel);
+    }
+
+    extern "C" UNITY_AUDIODSP_EXPORT_API void Synthesizer_ChannelAfterTouchMessage(int channel, int note, int value){
+        g_midiWriteBuffer->addEvent(juce::MidiMessage::aftertouchChange(channel, note, value), 0);
+//        g_vitalPlugin->getEngine()->setChannelAftertouch(channel, value, 0);
     }
 }

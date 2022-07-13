@@ -1,26 +1,36 @@
-cmake_minimum_required(VERSION 3.14)
+cmake_minimum_required(VERSION 3.15)
 set(CMAKE_CXX_STANDARD 14)
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 14)
 
 set(PROJECT_NAME unity_audio_plugin_demo_juce)
 
 set(CMAKE_TRY_COMPILE_TARGET_TYPE "STATIC_LIBRARY")
-set(CMAKE_CXX_FLAGS "/EHsc /MD")
-
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-# It's "bad form" to set this globally, but it's convenient.
-set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc /MD")
 
 add_compile_definitions(JUCE_MODAL_LOOPS_PERMITTED=1)
 
 project(AudioPluginDemo)
 
 if(${IS_HOLOLENS_2})
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /D_M_ARM /D__ARM_NEON /Zc:arm64-aliased-neon-types-")
+#    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /D_M_ARM64 /D__arm64__ /D__ARM_NEON /Zc:arm64-aliased-neon-types-")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /D__ARM_NEON /Zc:arm64-aliased-neon-types-")
 else()
     #ADD_COMPILE_DEFINITIONS(/arch:SSE2)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /D__SSE2__")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /D__SSE2__")
+endif()
+
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+# It's "bad form" to set this globally, but it's convenient.
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    message(STATUS "Setting build type to '${default_build_type}' as none was specified.")
+    set(CMAKE_BUILD_TYPE "${default_build_type}" CACHE
+            STRING "Choose the type of build." FORCE)
+    # Set the possible values of build type for cmake-gui
+    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS
+            "Debug" "Release" "MinSizeRel" "RelWithDebInfo")
 endif()
 
 list(APPEND CMAKE_PREFIX_PATH "C:/JUCE/install")
@@ -39,7 +49,7 @@ function(juce_add_shared_library target)
 endfunction()
 
 juce_add_shared_library(${PROJECT_NAME}
-        VERSION     0.0.1
+        VERSION     1.0.7
         )
 
 juce_generate_juce_header(${PROJECT_NAME})
@@ -119,7 +129,7 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
         juce::juce_box2d
         juce::juce_core
         juce::juce_data_structures
-        juce::juce_dsp
+#        juce::juce_dsp
         juce::juce_events
         juce::juce_graphics
         juce::juce_gui_basics
