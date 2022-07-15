@@ -152,13 +152,12 @@ namespace JuceSynthVital {
         LoadSave::getAllPresets(presets_);
     }
 
-    extern "C" UNITY_AUDIODSP_EXPORT_API int Synthesizer_AddMessage(int note, int channel, bool isNoteOn) {
+    extern "C" UNITY_AUDIODSP_EXPORT_API int Synthesizer_AddMessage(int note, int channel, bool isNoteOn, float velocity) {
         if(isNoteOn){
-            g_midiWriteBuffer->addEvent(juce::MidiMessage::noteOn(channel, note, 0.5f), 0);
+            g_midiWriteBuffer->addEvent(juce::MidiMessage::noteOn(channel, note, velocity), 0);
         } else {
             // lift velocity!!!
-            float lift = 0.5;
-            g_midiWriteBuffer->addEvent(juce::MidiMessage::noteOff(channel, note, lift), 0);
+            g_midiWriteBuffer->addEvent(juce::MidiMessage::noteOff(channel, note, velocity), 0);
         }
         return 200;
     }
