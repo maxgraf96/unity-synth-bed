@@ -5,7 +5,11 @@ set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 14)
 set(PROJECT_NAME unity_audio_plugin_demo_juce)
 
 set(CMAKE_TRY_COMPILE_TARGET_TYPE "STATIC_LIBRARY")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc /MD")
+if(${IS_DEBUG})
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc /MDd")
+else()
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc /MD")
+endif()
 
 add_compile_definitions(JUCE_MODAL_LOOPS_PERMITTED=1)
 
@@ -35,6 +39,16 @@ endif()
 
 list(APPEND CMAKE_PREFIX_PATH "C:/JUCE/install")
 find_package(JUCE CONFIG REQUIRED)
+
+include(FetchContent)
+
+FetchContent_Declare(
+        readerwriterqueue
+        GIT_REPOSITORY    https://github.com/cameron314/readerwriterqueue
+        GIT_TAG           master
+)
+
+FetchContent_MakeAvailable(readerwriterqueue)
 
 function(juce_add_shared_library target)
     add_library(${target} SHARED
@@ -137,8 +151,9 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
 
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
-        )
 
+        readerwriterqueue
+        )
 
 
 if(WIN32)
@@ -146,11 +161,17 @@ if(WIN32)
 endif(WIN32)
 
 if(${IS_HOLOLENS_2})
-    target_link_libraries(${PROJECT_NAME} PUBLIC ${PROJECT_SOURCE_DIR}/comsuppw.lib)
-    target_link_libraries(${PROJECT_NAME} PUBLIC "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.32.31326\\lib\\arm64\\msvcprt.lib")
-    target_link_libraries(${PROJECT_NAME} PUBLIC "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.32.31326\\lib\\arm64\\vcruntime.lib")
-
-    target_link_libraries(${PROJECT_NAME} PUBLIC "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.32.31326\\lib\\arm64\\msvcrt.lib")
+    if(${IS_DEBUG})
+        target_link_libraries(${PROJECT_NAME} PUBLIC "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.32.31326\\lib\\arm64\\comsuppwd.lib")
+        target_link_libraries(${PROJECT_NAME} PUBLIC "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.32.31326\\lib\\arm64\\msvcprtd.lib")
+        target_link_libraries(${PROJECT_NAME} PUBLIC "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.32.31326\\lib\\arm64\\vcruntimed.lib")
+        target_link_libraries(${PROJECT_NAME} PUBLIC "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.32.31326\\lib\\arm64\\msvcrtd.lib")
+    else()
+        target_link_libraries(${PROJECT_NAME} PUBLIC "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.32.31326\\lib\\arm64\\comsuppw.lib")
+        target_link_libraries(${PROJECT_NAME} PUBLIC "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.32.31326\\lib\\arm64\\msvcprt.lib")
+        target_link_libraries(${PROJECT_NAME} PUBLIC "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.32.31326\\lib\\arm64\\vcruntime.lib")
+        target_link_libraries(${PROJECT_NAME} PUBLIC "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.32.31326\\lib\\arm64\\msvcrt.lib")
+    endif()
 endif()
 
 # Copy to unity plugin dir

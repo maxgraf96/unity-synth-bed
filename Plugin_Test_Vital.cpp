@@ -4,6 +4,7 @@
 
 #pragma once
 
+//#include <readerwriterqueue.h>
 #include "AudioPluginInterface.h"
 #include "AudioPluginUtil.h"
 #include "synth_plugin.h"
@@ -23,10 +24,17 @@ namespace JuceSynthVital {
     unique_ptr<MidiBuffer> g_midiWriteBuffer;
     unique_ptr<SynthPlugin> g_vitalPlugin;
     Array<File> presets_;
+    CriticalSection lock;
+//    moodycamel::ReaderWriterQueue<MidiMessage> queue(100);
 
     struct EffectData {
         float p[P_NUM]; // Parameters
     };
+
+    inline uint8 initialByte (const int type, const int channel) noexcept
+    {
+        return (uint8) (type | jlimit (0, 15, channel - 1));
+    }
 
     int InternalRegisterEffectDefinition(UnityAudioEffectDefinition &definition) {
         int numparams = P_NUM;
@@ -42,6 +50,15 @@ namespace JuceSynthVital {
         return numparams;
     }
 
+    void swapMidiBuffers(){
+        const ScopedLock sl(lock);
+
+        // Clear read buffer
+        g_midiReadBuffer->clear();
+        // Swap read with write buffer
+        g_midiReadBuffer->swapWith(*g_midiWriteBuffer);
+    }
+
     // ------------------------------------------------ Main ------------------------------------------------
     UNITY_AUDIODSP_RESULT UNITY_AUDIODSP_CALLBACK ProcessCallback(
             UnityAudioEffectState *state,
@@ -54,10 +71,16 @@ namespace JuceSynthVital {
         if (state->flags & (UnityAudioEffectStateFlags_IsMuted | UnityAudioEffectStateFlags_IsPaused))
             return UNITY_AUDIODSP_OK;
 
-        // Clear read buffer
-        g_midiReadBuffer->clear();
-        // Swap read with write buffer
-        g_midiReadBuffer->swapWith(*g_midiWriteBuffer);
+        swapMidiBuffers();
+
+//        g_midiReadBuffer->clear();
+//        bool popSuccess = true;
+//        while(popSuccess){
+//            MidiMessage current;
+//            popSuccess = queue.try_dequeue(current);
+//            if(popSuccess)
+//                g_midiReadBuffer->addEvent(current, 0);
+//        }
 
         // Process audio and MIDI read buffer
         g_vitalPlugin->myProcessBlock(*g_juceBuffer, *g_midiReadBuffer);
@@ -82,8 +105,8 @@ namespace JuceSynthVital {
         EffectData *effectdata = new EffectData;
         state->effectdata = effectdata;
 
-        g_juceBuffer = make_unique<AudioBuffer<float>>(2, state->dspbuffersize);
         g_vitalPlugin = make_unique<SynthPlugin>();
+        g_juceBuffer = make_unique<AudioBuffer<float>>(2, state->dspbuffersize);
         g_midiReadBuffer = make_unique<MidiBuffer>();
         g_midiWriteBuffer = make_unique<MidiBuffer>();
 
@@ -140,7 +163,10 @@ namespace JuceSynthVital {
     extern "C" UNITY_AUDIODSP_EXPORT_API const char* Synthesizer_LoadPatch(int index){
         error = "";
         File file = presets_[index];
+        g_vitalPlugin->pauseProcessing(true);
+        g_vitalPlugin->getEngine()->allSoundsOff();
         g_vitalPlugin->loadFromFile(file, error);
+        g_vitalPlugin->pauseProcessing(false);
 
         return error.data();
     }
@@ -152,30 +178,43 @@ namespace JuceSynthVital {
         LoadSave::getAllPresets(presets_);
     }
 
+    extern "C" UNITY_AUDIODSP_EXPORT_API void Synthesizer_SetLogPath(const char* consoleLogDir){
+        std::string logDir = std::string(consoleLogDir);
+        juce::Logger::setCurrentLogger(FileLogger::createDateStampedLogger (logDir, "VitalLog", ".txt", "Hello"));
+    }
+
     extern "C" UNITY_AUDIODSP_EXPORT_API int Synthesizer_AddMessage(int note, int channel, bool isNoteOn, float velocity) {
+        const ScopedLock sl(lock);
+
         if(isNoteOn){
+//            queue.enqueue(juce::MidiMessage::noteOn(channel, note, velocity));
             g_midiWriteBuffer->addEvent(juce::MidiMessage::noteOn(channel, note, velocity), 0);
         } else {
             // lift velocity!!!
+//            queue.enqueue(juce::MidiMessage::noteOff(channel, note, velocity));
             g_midiWriteBuffer->addEvent(juce::MidiMessage::noteOff(channel, note, velocity), 0);
         }
         return 200;
     }
 
     extern "C" UNITY_AUDIODSP_EXPORT_API int Synthesizer_AllNotesOff() {
+        const ScopedLock sl(lock);
         for(int channel = 1; channel < 17; channel++){
+//            queue.enqueue(juce::MidiMessage::allNotesOff(channel));
             g_midiWriteBuffer->addEvent(juce::MidiMessage::allNotesOff(channel), 0);
         }
         return 200;
     }
 
     extern "C" UNITY_AUDIODSP_EXPORT_API void Synthesizer_PitchBendMessage(int channel, int bend){
+        const ScopedLock sl(lock);
         g_midiWriteBuffer->addEvent(juce::MidiMessage::pitchWheel(channel, bend), 0);
-//        g_vitalPlugin->getEngine()->setPitchWheel(bend, channel);
+//        queue.enqueue(juce::MidiMessage::pitchWheel(channel, bend));
     }
 
     extern "C" UNITY_AUDIODSP_EXPORT_API void Synthesizer_ChannelAfterTouchMessage(int channel, int note, int value){
+        const ScopedLock sl(lock);
         g_midiWriteBuffer->addEvent(juce::MidiMessage::aftertouchChange(channel, note, value), 0);
-//        g_vitalPlugin->getEngine()->setChannelAftertouch(channel, value, 0);
+//        queue.enqueue(juce::MidiMessage::aftertouchChange(channel, note, value));
     }
 }

@@ -3,6 +3,8 @@ build
 .DS_Store
 cmake-build-release-arm64
 cmake-build-release-x86_64
+cmake-build-debug-arm64
+cmake-build-debug-x86_64
 
 # Prerequisites
 *.d
